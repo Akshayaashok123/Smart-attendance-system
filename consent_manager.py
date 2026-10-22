@@ -12,8 +12,11 @@ def get_admin_session(db, user, password):
         else:
             password = "Admin@1234"
     session = auth.authenticate(user, password)
-    if not session or session.get("role") != "ADMIN":
-        print(f"[Security Error] Unauthorized: User '{user}' must have ADMIN role.")
+    if not session:
+        print(f"[Security Error] Authentication failed for '{user}'. Invalid password.")
+        return None
+    if session.get("role") != "ADMIN":
+        print(f"[Security Error] Unauthorized: User '{user}' has role '{session.get('role')}', but ADMIN is required.")
         return None
     return session
 
