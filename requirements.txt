@@ -1,0 +1,6 @@
+opencv-python
+cryptography
+requests
+numpy
+python-dotenv
+qrcode[pil]

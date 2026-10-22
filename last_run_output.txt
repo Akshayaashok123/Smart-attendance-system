@@ -1,0 +1,12 @@
+﻿--- [Smart Attendance System Initializing] ---
+[Security] Encryption key loaded from 'secret.key'.
+[Security] WARNING: Back up 'secret.key' securely. Losing it means all registered face embeddings become unreadable and all students must re-register.
+Background sync started (Interval: 1800s)
+[Sync] Data is up to date.
+[System] Scanning for QR and Face...
+Press 'q' to quit.
+[Verified] Akshaya (STU_2026_01) marked as: LATE (Similarity: 0.5438)
+[Local DB] Record saved with status 'Late'.
+Email alert sent for STU_2026_01 [Late] to ashokakshaya85@gmail.com
+[System] Quit key pressed.
+[System] Background sync stopped. Goodbye!

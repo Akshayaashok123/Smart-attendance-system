@@ -1,0 +1,11 @@
+# .gitignore
+.env
+secret.key
+attendance.db
+attendance.db-wal
+attendance.db-shm
+test_attendance.db
+models/
+__pycache__/
+.venv/
+*.pyc
