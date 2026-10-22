@@ -1,0 +1,80 @@
+﻿py : [ WARN:0@0.622] 
+global 
+net_impl_backend.cpp:345 c
+v::dnn::dnn5_v20260605::Ne
+t::Impl::setPreferableTarg
+et Targets are not 
+supported by the new 
+graph engine for now
+At line:1 char:1
++ py audit_tests.py 2>&1 
+| Out-File -FilePath 
+audit_results.txt -Encodi 
+...
++ ~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo        
+      : NotSpecified: ([  
+   WARN:0@0.622]... eng   
+ ine for now:String) [    
+], RemoteException
+    + FullyQualifiedError 
+   Id : NativeCommandErr  
+  or
+ 
+[ WARN:0@0.780] global 
+net_impl_backend.cpp:345 c
+v::dnn::dnn5_v20260605::Ne
+t::Impl::setPreferableTarg
+et Targets are not 
+supported by the new 
+graph engine for now
+[Security] Encryption key loaded from 'secret.key'.
+[Security] WARNING: Back up 'secret.key' securely. Losing it means all registered face embeddings become unreadable and all students must re-register.
+============================================================
+AUDIT TESTS (scratch DB: audit_test.db)
+============================================================
+
+[a] log_attendance writes row, is_synced=0, status='Late'
+  [PASS] Row written  ('STU_AUDIT_01', 'Late', 0)
+  [PASS] student_id correct  
+  [PASS] status='Late'  
+  [PASS] is_synced=0  
+
+[b] Different face embedding -> score < 0.42 -> rejected
+  [FAIL] score<0.42 so rejected (SFace cosine)  score=0.7644
+
+[c] Network disabled -> local still saved, sync returns quickly
+[Sync] Offline. Waiting for connectivity...
+  [PASS] Returned in <5s (no freeze)  0.000s
+  [PASS] is_synced still 0 (record preserved)  
+
+[d] Network re-enabled -> batch POST, is_synced=1, no embedding in payload
+[Sync] Successfully synced batch of 1.
+  [PASS] POST was made  
+  [PASS] is_synced=1 after sync  
+  [PASS] Payload has student_id  keys={'status', 'student_id', 'timestamp'}
+  [PASS] Payload has timestamp  
+  [PASS] Payload has status  
+  [PASS] No embedding in payload (privacy)  
+
+[e] Run sync AGAIN -> no duplicate POST (all rows already synced)
+[Sync] Data is up to date.
+  [PASS] No POST on second sync  
+  [PASS] Zero unsynced records  unsynced=0
+
+[f] WAL resilience: write record, reopen DB fresh, all data intact
+  [PASS] STU_AUDIT_01 intact  
+  [PASS] STU_AUDIT_02 intact  
+     All rows: [('STU_AUDIT_01', 'Late', 1), ('STU_AUDIT_02', 'Present', 0)]
+
+[bonus] Duplicate same-day check-in blocked by has_checked_in_today()
+  [PASS] has_checked_in_today returns True -> blocks repeat scan  
+
+Cleaning up scratch DB...
+  (Could not remove audit_test.db: [WinError 32] The process cannot access the file because it is being used by another process: 'audit_test.db')
+  (Could not remove audit_test.db-wal: [WinError 32] The process cannot access the file because it is being used by another process: 'audit_test.db-wal')
+  (Could not remove audit_test.db-shm: [WinError 32] The process cannot access the file because it is being used by another process: 'audit_test.db-shm')
+
+============================================================
+All audit tests complete.
+============================================================

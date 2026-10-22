@@ -6,7 +6,7 @@ import os
 import sys
 
 class AttendanceScanner:
-    """Manages Camera, QR Scanning, and Face Recognition using YuNet and SFace."""
+    """Manages Camera, QR Scanning, and Face Recognition via YuNet and SFace."""
     
     def __init__(self, model_dir="models"):
         self.model_dir = model_dir
@@ -14,7 +14,15 @@ class AttendanceScanner:
         self.sface_path = os.path.join(model_dir, "face_recognition_sface_2021dec.onnx")
         self._ensure_models_exist()
         
+        # QR detectors - try WeChat (more robust), fall back to standard
         self.qr_detector = cv2.QRCodeDetector()
+        try:
+            self.wechat_qr = cv2.wechat_qrcode.WeChatQRCode()
+            self.use_wechat_qr = True
+            print("[QR] Using WeChat QR detector (enhanced reliability)")
+        except Exception:
+            self.use_wechat_qr = False
+            print("[QR] WeChat QR unavailable, using standard detector")
         
         # Initialize YuNet Face Detector
         # input_size is dynamic, will be updated in scan_frame
@@ -44,7 +52,7 @@ class AttendanceScanner:
             print("Downloading YuNet face detection model...")
             url = "https://huggingface.co/opencv/face_detection_yunet/resolve/main/face_detection_yunet_2023mar.onnx"
             try:
-                r = requests.get(url)
+                r = requests.get(url, timeout=60)
                 r.raise_for_status()
                 with open(self.yunet_path, 'wb') as f:
                     f.write(r.content)
@@ -52,7 +60,7 @@ class AttendanceScanner:
             except Exception as e:
                 print(f"Error downloading YuNet from Hugging Face: {e}. Trying GitHub...")
                 url = "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
-                r = requests.get(url)
+                r = requests.get(url, timeout=60)
                 with open(self.yunet_path, 'wb') as f:
                     f.write(r.content)
                 print("YuNet download complete.")
@@ -70,7 +78,7 @@ class AttendanceScanner:
             except Exception as e:
                 print(f"Error downloading SFace from Hugging Face: {e}. Trying GitHub...")
                 url = "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
-                r = requests.get(url)
+                r = requests.get(url, timeout=60)
                 with open(self.sface_path, 'wb') as f:
                     f.write(r.content)
                 print("SFace download complete.")
@@ -92,11 +100,54 @@ class AttendanceScanner:
         Processes a single frame for Dual-Factor Verification.
         Returns (student_id, face_detected, embedding, faces)
         """
-        # 1. QR Scan (using OpenCV built-in)
+        # 1. QR Scan — try WeChat detector first (most robust), then standard detector fallbacks
         student_id = None
-        retval, decoded_info, points, straight_qrcode = self.qr_detector.detectAndDecodeMulti(frame)
-        if retval and decoded_info and any(decoded_info):
-            student_id = [info for info in decoded_info if info][0]
+        self.last_qr_points = None
+
+        if self.use_wechat_qr:
+            try:
+                decoded_info, points = self.wechat_qr.detectAndDecode(frame)
+                if decoded_info and any(decoded_info):
+                    valid_items = [info for info in decoded_info if info]
+                    if valid_items:
+                        student_id = valid_items[0].strip()
+                        self.last_qr_points = points
+            except Exception:
+                pass
+
+        if not student_id:
+            # Fallback 1: Standard single-shot on original frame
+            try:
+                decoded_text, points, _ = self.qr_detector.detectAndDecode(frame)
+                if decoded_text:
+                    student_id = decoded_text.strip()
+                    self.last_qr_points = [points] if points is not None else None
+            except Exception:
+                pass
+
+        if not student_id:
+            # Fallback 2: Standard single-shot on grayscale
+            try:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                decoded_text, points, _ = self.qr_detector.detectAndDecode(gray)
+                if decoded_text:
+                    student_id = decoded_text.strip()
+                    self.last_qr_points = [points] if points is not None else None
+            except Exception:
+                pass
+
+        if not student_id:
+            # Fallback 3: Standard multi-shot on grayscale
+            try:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                retval, decoded_info, points, _ = self.qr_detector.detectAndDecodeMulti(gray)
+                if retval and decoded_info and any(decoded_info):
+                    valid_items = [info for info in decoded_info if info]
+                    if valid_items:
+                        student_id = valid_items[0].strip()
+                        self.last_qr_points = points
+            except Exception:
+                pass
 
         # 2. Face Detection using YuNet
         h, w, _ = frame.shape
@@ -126,7 +177,11 @@ class AttendanceScanner:
 
         print("Press 'q' to quit.")
         last_logged_time = 0
-        cooldown = 5 # seconds
+        cooldown = 4 # seconds
+        feedback_status = None
+        feedback_color = (0, 0, 255)
+        feedback_until = 0
+        face_box_color = (255, 0, 0)
 
         while True:
             ret, frame = self.cap.read()
@@ -136,26 +191,74 @@ class AttendanceScanner:
 
             student_id, face_detected, embedding, faces = self.scan_frame(frame)
 
-            # UI Overlays
+            # Trigger verification callback when both QR and Face are present
+            if student_id and face_detected:
+                if time.time() - last_logged_time > cooldown:
+                    res = callback(student_id, embedding)
+                    last_logged_time = time.time()
+                    feedback_until = time.time() + 3.0 # Display feedback banner for 3s
+
+                    if isinstance(res, tuple) and len(res) >= 2:
+                        is_success, msg = res[0], res[1]
+                        if is_success:
+                            feedback_status = f"SUCCESS: {msg}"
+                            feedback_color = (0, 255, 0) # Green
+                            face_box_color = (0, 255, 0)
+                        else:
+                            feedback_status = f"REJECTED: {msg}"
+                            feedback_color = (0, 0, 255) # Red
+                            face_box_color = (0, 0, 255)
+                    elif res is True:
+                        feedback_status = f"SUCCESS: Verified {student_id}"
+                        feedback_color = (0, 255, 0)
+                        face_box_color = (0, 255, 0)
+                    else:
+                        feedback_status = f"REJECTED: Face mismatch for {student_id}"
+                        feedback_color = (0, 0, 255)
+                        face_box_color = (0, 0, 255)
+
+            # Determine banner text and face outline color
+            if time.time() < feedback_until and feedback_status:
+                status_text = feedback_status
+                color = feedback_color
+            elif student_id and face_detected:
+                status_text = f"Evaluating face for {student_id}..."
+                color = (0, 255, 255) # Yellow
+                face_box_color = (0, 255, 255)
+            elif student_id:
+                status_text = f"QR Detected: {student_id} (Look at camera)"
+                color = (0, 255, 255)
+                face_box_color = (255, 0, 0)
+            elif face_detected:
+                status_text = "Face Detected (Hold up QR code)"
+                color = (255, 200, 0)
+                face_box_color = (255, 0, 0)
+            else:
+                status_text = "Waiting for QR + Face..."
+                color = (0, 0, 255)
+                face_box_color = (255, 0, 0)
+
+            # UI Overlays: Face Bounding Box
             if faces is not None:
                 for face in faces:
                     x, y, w, h = map(int, face[0:4])
-                    cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 0), 2)
+                    cv2.rectangle(frame, (x, y), (x+w, y+h), face_box_color, 2)
+                    label = "Face"
+                    if time.time() < feedback_until and feedback_status:
+                        label = "MATCH" if feedback_color == (0, 255, 0) else "MISMATCH"
+                    cv2.putText(frame, label, (x, max(20, y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, face_box_color, 2)
 
-            status_text = "Waiting for QR + Face..."
-            color = (0, 0, 255)
+            # UI Overlays: QR Bounding Polygon
+            if self.last_qr_points is not None:
+                for pts in self.last_qr_points:
+                    if pts is not None and len(pts) > 0:
+                        pts_int = np.int32(pts).reshape((-1, 1, 2))
+                        cv2.polylines(frame, [pts_int], isClosed=True, color=(0, 255, 0), thickness=3)
 
-            if student_id and face_detected:
-                status_text = f"Verified ID: {student_id} — Processing..."
-                color = (0, 255, 0)
+            # Top background banner for text readability
+            cv2.rectangle(frame, (0, 0), (frame.shape[1], 45), (20, 20, 20), -1)
+            cv2.putText(frame, status_text, (12, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.72, color, 2)
 
-                # Trigger attendance if cooldown passed
-                if time.time() - last_logged_time > cooldown:
-                    callback(student_id, embedding)
-                    status_text = f"Verified ID: {student_id} — Done"
-                    last_logged_time = time.time()
-
-            cv2.putText(frame, status_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
             try:
                 cv2.imshow("Attendance Scanner (Dual-Factor)", frame)
             except cv2.error as e:

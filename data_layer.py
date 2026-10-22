@@ -83,15 +83,28 @@ class DataLayer:
             return False
 
     def get_registered_student(self, student_id):
-        """Retrieves a registered student's profile by ID."""
-        query = "SELECT name, face_embedding_encrypted FROM registered_students WHERE student_id = ?"
+        """Retrieves a registered student's profile by ID or name."""
+        query = """
+        SELECT student_id, name, face_embedding_encrypted 
+        FROM registered_students 
+        WHERE student_id = ? 
+           OR name = ? 
+           OR LOWER(name) = LOWER(?)
+           OR ? LIKE (name || '%')
+           OR name LIKE (? || '%')
+        LIMIT 1
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(query, (student_id,))
+                cursor.execute(query, (student_id, student_id, student_id, student_id, student_id))
                 res = cursor.fetchone()
                 if res:
-                    return {"name": res[0], "face_embedding_encrypted": res[1]}
+                    return {
+                        "student_id": res[0],
+                        "name": res[1],
+                        "face_embedding_encrypted": res[2]
+                    }
             return None
         except Exception as e:
             print(f"Error fetching registered student {student_id}: {e}")

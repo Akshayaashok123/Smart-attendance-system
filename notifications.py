@@ -29,7 +29,7 @@ class EmailNotifier:
         msg.attach(MIMEText(body, 'plain'))
 
         try:
-            server = smtplib.SMTP(self.smtp_server, self.smtp_port)
+            server = smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=10)
             server.starttls()
             server.login(self.sender_email, self.sender_password)
             server.send_message(msg)

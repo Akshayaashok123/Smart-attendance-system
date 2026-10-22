@@ -93,7 +93,7 @@ class CloudSyncManager:
 #   // 2. Log each record
 #   records.forEach(function(record) {
 #     var studentName = nameMap[record.student_id] || "Unknown Student";
-#     attendanceSheet.appendRow([timestamp, record.student_id, studentName, record.timestamp, "Verified (Batch)"]);
+#     attendanceSheet.appendRow([timestamp, record.student_id, studentName, record.timestamp, record.status, "Verified (Batch)"]);
 #   });
 #   
 #   return ContentService.createTextOutput("Success").setMimeType(ContentService.MimeType.TEXT);

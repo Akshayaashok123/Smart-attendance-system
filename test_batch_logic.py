@@ -5,8 +5,8 @@ from cloud_sync import CloudSyncManager
 class MockDB:
     def get_unsynced_records(self):
         return [
-            (1, "STUDENT_001", "2026-01-01 10:00:00", "emb1", 0),
-            (2, "STUDENT_002", "2026-01-01 10:05:00", "emb2", 0)
+            (1, "STUDENT_001", "2026-01-01 10:00:00", "Present"),
+        (2, "STUDENT_002", "2026-01-01 10:05:00", "Late")
         ]
     def mark_as_synced(self, record_id):
         print(f"Marked {record_id} as synced")
@@ -18,9 +18,9 @@ def test_batch_construction():
     # Mock behavior
     unsynced = db.get_unsynced_records()
     batch_data = [
-        {"student_id": r[1], "timestamp": r[2]} 
-        for r in unsynced
-    ]
+    {"student_id": r[1], "timestamp": r[2], "status": r[3] if r[3] in ["Present", "Late"] else "Present"}
+    for r in unsynced
+]
     
     print("Constructed Batch Data:")
     import json

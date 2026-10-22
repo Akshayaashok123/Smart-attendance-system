@@ -19,8 +19,8 @@ def calculate_attendance_status():
     current_time = datetime.now().time()
     return "Late" if current_time > SCHOOL_START_CUTOFF else "Present"
 
-# Define your institution's expected ID pattern (e.g., alphanumeric, prefix, or length)
-VALID_ID_PATTERN = re.compile(r'^[A-Za-z0-9_-]{3,20}$')
+# Define your institution's expected ID pattern (supports alphanumeric, dashes, underscores, and spaces)
+VALID_ID_PATTERN = re.compile(r'^[A-Za-z0-9_ -]{3,30}$')
 
 # Load variables from local .env
 load_dotenv()
@@ -57,13 +57,15 @@ def main():
         # Reject web URLs or noisy barcodes immediately
         if not VALID_ID_PATTERN.match(student_id) or student_id.startswith(("http://", "https://")):
             print(f"[Rejected] Invalid QR payload format: {student_id}")
-            return
+            return False, "Invalid QR Format", 0.0
 
         # 1. Check if student is registered
         profile = db.get_registered_student(student_id)
         if not profile:
-            print(f"[Verification Failed] Student ID {student_id} is not registered in the system.")
-            return
+            print(f"[Verification Failed] Student ID/Name '{student_id}' is not registered in the system.")
+            return False, f"ID '{student_id}' Not Registered", 0.0
+
+        canonical_id = profile.get("student_id", student_id)
 
         # 2. Load registered embedding
         try:
@@ -72,35 +74,38 @@ def main():
             registered_emb = np.array(registered_emb_list, dtype=np.float32)
         except Exception as e:
             print(f"[Error] Failed to decrypt or parse registered embedding for {student_id}: {e}")
-            return
+            return False, "Decrypt Error", 0.0
 
         # 3. Match using SFace (Cosine Similarity)
-        score = scanner.face_recognizer.match(embedding, registered_emb, cv2.FaceRecognizerSF_FR_COSINE)
+        score = float(scanner.face_recognizer.match(embedding, registered_emb, cv2.FaceRecognizerSF_FR_COSINE))
         MATCH_THRESHOLD = 0.42 # Strict zero-tolerance threshold for Cosine similarity
         
         if score >= MATCH_THRESHOLD:
             # 1. Prevent duplicate check-in for the same student on the same day
-            if db.has_checked_in_today(student_id):
-                print(f"[Skip] {profile['name']} ({student_id}) has already checked in today.")
-                return
+            if db.has_checked_in_today(canonical_id):
+                print(f"[Skip] {profile['name']} ({canonical_id}) has already checked in today.")
+                return True, f"Already Logged: {profile['name']}", score
 
             # 2. Determine dynamic status based on time
             status = calculate_attendance_status()
             
-            print(f"[Verified] {profile['name']} ({student_id}) marked as: {status.upper()} (Similarity: {score:.4f})")
+            print(f"[Verified] {profile['name']} ({canonical_id}) marked as: {status.upper()} (Similarity: {score:.4f})")
 
             # 3. Encrypt live face embedding
             live_emb_json = json.dumps(embedding.tolist())
             encrypted_emb = security.encrypt_data(live_emb_json)
 
             # 4. Log to SQLite with the evaluated status
-            if db.log_attendance(student_id, encrypted_emb, status=status):
+            if db.log_attendance(canonical_id, encrypted_emb, status=status):
                 print(f"[Local DB] Record saved with status '{status}'.")
-                notifier.send_alert(RECEIVER_EMAIL, f"{student_id} [{status}]")
+                notifier.send_alert(RECEIVER_EMAIL, f"{canonical_id} [{status}]")
+                return True, f"Logged {status}: {profile['name']}", score
             else:
-                print(f"[Error] Failed to log attendance for {student_id}.")
+                print(f"[Error] Failed to log attendance for {canonical_id}.")
+                return False, "Database Write Error", score
         else:
-            print(f"[Verification Failed] Face mismatch for student {student_id} (Similarity: {score:.4f} < {MATCH_THRESHOLD}). Attendance rejected.")
+            print(f"[Verification Failed] Face mismatch for student {canonical_id} (Similarity: {score:.4f} < {MATCH_THRESHOLD}). Attendance rejected.")
+            return False, f"Face Mismatch ({score:.2f} < {MATCH_THRESHOLD})", score
 
     # 3. Start scanning loop
     scanner = AttendanceScanner()
