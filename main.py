@@ -54,6 +54,7 @@ def main():
     # 2. Scanner Callback
     def on_success(student_id, embedding):
         """Action to take when QR and Face are verified simultaneously."""
+        student_id = str(student_id).strip()
         # Reject web URLs or noisy barcodes immediately
         if not VALID_ID_PATTERN.match(student_id) or student_id.startswith(("http://", "https://")):
             print(f"[Rejected] Invalid QR payload format: {student_id}")
@@ -66,6 +67,16 @@ def main():
             return False, f"ID '{student_id}' Not Registered", 0.0
 
         canonical_id = profile.get("student_id", student_id)
+
+        # Check consent status before biometric verification
+        consent_status = profile.get("consent_status", "PENDING")
+        if consent_status != "GRANTED":
+            print(f"[Verification Failed] Biometric verification disabled: Student '{canonical_id}' consent status is '{consent_status}'. Use non-biometric manual attendance.")
+            return False, f"Consent {consent_status} (Use Manual)", 0.0
+
+        if not profile.get("face_embedding_encrypted"):
+            print(f"[Verification Failed] No biometric template on file for '{canonical_id}'. Use non-biometric manual attendance.")
+            return False, "No Biometric Template", 0.0
 
         # 2. Load registered embedding
         try:

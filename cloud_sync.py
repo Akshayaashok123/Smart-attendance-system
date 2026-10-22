@@ -32,12 +32,13 @@ class CloudSyncManager:
             print("[Sync] Data is up to date.")
             return
 
-        # Construct the batch payload using the explicit columns
+        # Construct the batch payload using explicit, privacy-conscious columns
         batch_data = [
             {
                 "student_id": r[1],
                 "timestamp": r[2],
-                "status": r[3] if r[3] in ["Present", "Late"] else "Present"
+                "status": r[3] if len(r) > 3 and r[3] in ["Present", "Late"] else "Present",
+                "method": r[4] if len(r) > 4 else "FACE_QR"
             }
             for r in unsynced
         ]
@@ -49,10 +50,16 @@ class CloudSyncManager:
                 for record in unsynced:
                     self.db.mark_as_synced(record[0])
                 print(f"[Sync] Successfully synced batch of {len(batch_data)}.")
+                if hasattr(self.db, "log_audit_event"):
+                    self.db.log_audit_event("SYSTEM", "SYNC_SUCCESS", "google_sheets", f"Synced batch of {len(batch_data)} records", "SUCCESS")
             else:
                 print(f"[Sync] Server error during batch sync: {response.status_code}")
+                if hasattr(self.db, "log_audit_event"):
+                    self.db.log_audit_event("SYSTEM", "SYNC_FAILURE", "google_sheets", f"Server error: HTTP {response.status_code}", "FAILED")
         except Exception as e:
             print(f"[Sync] Batch failed: {e}")
+            if hasattr(self.db, "log_audit_event"):
+                self.db.log_audit_event("SYSTEM", "SYNC_FAILURE", "google_sheets", f"Batch sync exception: {type(e).__name__}", "FAILED")
 
     def _sync_loop(self):
         while self.running:

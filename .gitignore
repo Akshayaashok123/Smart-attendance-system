@@ -12,3 +12,6 @@ __pycache__/
 last_run_output.txt
 audit_test.db*
 *.log
+backups/
+*.db-backup
+privacy_test.db*

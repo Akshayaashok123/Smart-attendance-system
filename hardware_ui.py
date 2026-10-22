@@ -245,7 +245,22 @@ class AttendanceScanner:
                     cv2.rectangle(frame, (x, y), (x+w, y+h), face_box_color, 2)
                     label = "Face"
                     if time.time() < feedback_until and feedback_status:
-                        label = "MATCH" if feedback_color == (0, 255, 0) else "MISMATCH"
+                        if feedback_color == (0, 255, 0):
+                            label = "MATCH"
+                        else:
+                            status_upper = feedback_status.upper()
+                            if "MISMATCH" in status_upper:
+                                label = "FACE MISMATCH"
+                            elif "NOT REGISTERED" in status_upper:
+                                label = "NOT REGISTERED"
+                            elif "CONSENT" in status_upper:
+                                label = "NO CONSENT"
+                            elif "TEMPLATE" in status_upper:
+                                label = "NO TEMPLATE"
+                            elif "INVALID" in status_upper:
+                                label = "INVALID QR"
+                            else:
+                                label = "REJECTED"
                     cv2.putText(frame, label, (x, max(20, y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, face_box_color, 2)
 
             # UI Overlays: QR Bounding Polygon
@@ -259,6 +274,11 @@ class AttendanceScanner:
             cv2.rectangle(frame, (0, 0), (frame.shape[1], 45), (20, 20, 20), -1)
             cv2.putText(frame, status_text, (12, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.72, color, 2)
 
+            # Bottom guidance banner for safe fallback
+            h_f, w_f = frame.shape[:2]
+            cv2.rectangle(frame, (0, h_f - 24), (w_f, h_f), (20, 20, 20), -1)
+            cv2.putText(frame, "Press 'q': Exit | 'm': Manual Fallback Info", (10, h_f - 7), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
+
             try:
                 cv2.imshow("Attendance Scanner (Dual-Factor)", frame)
             except cv2.error as e:
@@ -271,6 +291,10 @@ class AttendanceScanner:
                 if key == ord('q'):
                     print("[System] Quit key pressed.")
                     break
+                elif key == ord('m'):
+                    print("\n[Manual Attendance Guidance]")
+                    print("To mark attendance without biometric verification, run:")
+                    print("  python manual_attendance.py --id <STUDENT_ID> --status Present --reason NO_BIOMETRIC_CONSENT --user teacher1\n")
 
         self.stop_camera()
 
